@@ -1,0 +1,206 @@
+# =====================================================================
+# Datafest BCP 2026 - Caso de Factoring
+# Entorno fijo para los cuatro laptops del equipo.
+# =====================================================================
+#
+#   python -m pip install -r requirements.txt
+#   python verifica_entorno.py
+#
+# Construido a partir de los imports reales de los 24 archivos de codigo
+# del proyecto (codigos/codingChallengue, Datafest2026_Factoring_VSCode/py
+# y /src, y caps/*.ipynb) mas los paquetes que el caso de factoring
+# justifica. Las dos secciones estan separadas a proposito: la primera es
+# lo que YA se usa, la segunda es apuesta razonada.
+#
+# Versiones exactas (==), no minimos (>=). Con >= cada laptop resuelve una
+# version distinta el dia que instala y los resultados dejan de coincidir
+# entre maquinas. Un requirements con >= no es un entorno reproducible,
+# es una sugerencia.
+#
+# Todas estas versiones tienen wheel para Python 3.14 en Windows x64
+# (verificado el 2026-11-05). Si algun laptop usa Python 3.12 o 3.13
+# tambien funcionan.
+
+
+# ---------------------------------------------------------------------
+# 1. DATOS - el nucleo del bloque 1
+# ---------------------------------------------------------------------
+# polars es la libreria principal: B2B tiene 1.37 M de filas y hay
+# laptops de 8 GB. pandas queda solo como puente hacia scikit-learn
+# (.to_pandas()), y pyarrow es lo que hace funcionar ese puente y los
+# parquet comprimidos con zstd.
+polars==2.1.0
+pandas==2.3.3
+numpy==2.5.3
+pyarrow==26.0.1
+
+
+# ---------------------------------------------------------------------
+# 2. MODELADO - bloques 3, 4 y 5
+# ---------------------------------------------------------------------
+# scikit-learn: HistGradientBoostingClassifier (la linea base, Gini
+#   0.745), LogisticRegression (el contraste obligatorio de banca),
+#   StratifiedGroupKFold, Pipeline, ColumnTransformer, roc_auc_score.
+# lightgbm: el modelo de produccion del equipo desde 2025.
+# xgboost y catboost: el segundo y tercer arbol para medir si un
+#   ensamble aporta. catboost ademas maneja rubro_ciiu y departamento
+#   como categoricas sin one-hot, y en este caso hay 25 departamentos
+#   y decenas de rubros.
+scikit-learn==1.9.1
+lightgbm==4.7.0
+xgboost==3.4.1
+catboost==1.2.10
+
+
+# ---------------------------------------------------------------------
+# 3. OPTIMIZACION - el segundo modelo, 40% del puntaje tecnico
+# ---------------------------------------------------------------------
+# scipy: linprog para la relajacion lineal, y ya trae HiGHS adentro.
+#   Tambien scipy.stats (spearmanr, rankdata, ks_2samp) para el EDA.
+# pyomo + highspy: para escribir el modelo de asignacion de forma
+#   declarativa, con restricciones nombradas. Es lo que permite leer
+#   los PRECIOS SOMBRA de cada restriccion, que es el numero que el
+#   jurado de negocio entiende: "si me das un funcionario mas, gano X".
+#   Es lo que ya practicaron en caps/cap04_precios_sombra.ipynb.
+scipy==1.18.1
+pyomo==6.10.1
+highspy==1.15.1
+
+
+# ---------------------------------------------------------------------
+# 4. RED B2B - donde esta todo el Gini
+# ---------------------------------------------------------------------
+# Esta medido: solo con el maestro el Gini es 0.590, con el perfil del
+# banco 0.593, y con la red de transacciones B2B salta a 0.745. Todo el
+# valor del caso esta en el grafo de pagos entre empresas.
+#
+# networkx convierte ese grafo en variables que los agregados simples no
+# capturan: PageRank del proveedor en la red de pagos, centralidad de
+# intermediacion, si sus pagadores estan conectados entre si. Es la via
+# mas directa para subir de 0.745 sin tocar hiperparametros.
+# 1.37 M de aristas es grande pero manejable si se filtra por periodo.
+networkx==3.7
+
+
+# ---------------------------------------------------------------------
+# 5. EXPLICABILIDAD - para la exposicion, no para el modelo
+# ---------------------------------------------------------------------
+# shap responde la pregunta que el jurado de negocio siempre hace:
+# "por que esta empresa y no la otra". Un grafico de SHAP por empresa
+# convierte el modelo en un argumento comercial. Se corre UNA vez sobre
+# una muestra, al final, no en cada iteracion: es costoso.
+shap==0.52.0
+
+
+# ---------------------------------------------------------------------
+# 6. BUSQUEDA DE HIPERPARAMETROS
+# ---------------------------------------------------------------------
+# En 2025 la busqueda fue aleatoria con 14 configuraciones. optuna llega
+# al mismo lugar con menos corridas porque descarta temprano las malas
+# (pruning), y eso en un torneo de 24 horas es tiempo de reloj.
+# Advertencia: el problema real del modelo actual es el SOBREAJUSTE
+# (brecha train-test de 0.134 contra un control de 0.08). optuna no
+# arregla eso; lo empeora si se optimiza contra un solo corte. Se usa
+# optimizando el Gini PROMEDIO de los tres cortes temporales.
+optuna==5.0.0
+
+
+# ---------------------------------------------------------------------
+# 7. GRAFICOS Y ENTREGA
+# ---------------------------------------------------------------------
+# matplotlib con backend Agg. Sin seaborn ni plotly: ver la nota final.
+# xlsxwriter es lo que usa polars.write_excel(): el plan de asignacion
+#   en Excel, con una hoja por canal, es el entregable que un jurado de
+#   negocio efectivamente abre.
+# openpyxl para leer cualquier plantilla .xlsx que entregue el banco.
+matplotlib==3.11.2
+xlsxwriter==3.3.1
+openpyxl==3.1.5
+
+
+# ---------------------------------------------------------------------
+# 8. ENTORNO DE TRABAJO EN VS CODE
+# ---------------------------------------------------------------------
+# ipykernel: SIN ESTO LAS CELDAS "# %%" NO CORREN EN VS CODE. Es el
+#   paquete que faltaba en el requirements anterior y el que mas rapido
+#   bloquea a alguien el dia del evento.
+# jupytext: convierte los scripts "# %%" a .ipynb y de vuelta, sin
+#   perder el formato de celdas. Util si el banco pide notebook.
+# tqdm: barras de progreso. A las 3 de la manana la diferencia entre
+#   "esta corriendo" y "se colgo" vale media hora.
+# joblib: guardar el modelo entrenado en disco para no reentrenar, y
+#   paralelizar bucles. Ya viene con scikit-learn, se declara explicito.
+ipykernel==7.3.0
+jupytext==1.19.6
+tqdm==4.70.1
+joblib==1.6.0
+
+
+# ---------------------------------------------------------------------
+# 9. REGRESION LOGISTICA CON TABLA DE BANCA
+# ---------------------------------------------------------------------
+# sklearn entrena la logistica pero no imprime coeficientes con error
+# estandar ni p-valores. statsmodels si, y esa tabla es el lenguaje de
+# un area de riesgos. Si el jurado tiene un perfil de riesgo crediticio,
+# mostrar la logistica con sus p-valores al lado del arbol vale mas que
+# un hiperparametro mejor.
+statsmodels==0.15.0
+
+
+# ---------------------------------------------------------------------
+# 10. ASIGNACION ENTERA (evaluar antes de instalar)
+# ---------------------------------------------------------------------
+# El problema real es ENTERO: ~19,000 empresas x 3 canales, con topes de
+# capacidad por segmento y por canal, montos minimos y un tope de
+# concentracion geografica. Eso es exactamente la forma de CP-SAT, que
+# lo resuelve exacto en segundos donde una relajacion lineal mas redondeo
+# puede devolver un plan que viola una restriccion.
+#
+# Es un paquete grande (~100 MB) y pyomo+highspy ya cubre el caso. Se
+# instala solo si el plan de la relajacion lineal sale infactible al
+# redondear. Descomentar entonces:
+# ortools==9.15.6755
+#
+# PuLP: otra capa de modelado, trae su propio solver CBC. Redundante con
+# pyomo+highspy. Solo como plan C si highspy no instala en algun laptop:
+# pulp==4.2.0
+
+
+# =====================================================================
+# LO QUE NO ESTA, Y POR QUE
+# =====================================================================
+#
+# google-colab        PROHIBIDO en el torneo. Los bloques de 2025 abren
+#                     con drive.mount(): esa linea hay que borrarla de
+#                     las plantillas antes del evento, no arreglarla ahi.
+#
+# IPython             Solo se usaba para display() en Colab. En VS Code
+#                     print() y el visor de datos alcanzan.
+#
+# imbalanced-learn    La tasa base es 1.5% y la tentacion de SMOTE es
+#                     fuerte. No: la metrica es Gini, que mide ORDEN, y
+#                     el remuestreo no cambia el orden pero si destruye
+#                     la calibracion de las probabilidades, que es justo
+#                     lo que la optimizacion necesita para calcular el
+#                     margen esperado. Para el desbalance esta
+#                     scale_pos_weight, que ya viene en lightgbm.
+#
+# seaborn / plotly    matplotlib alcanza para las 8 o 10 figuras del
+#                     deck. Una libreria mas es una sintaxis mas que
+#                     recordar a las 3 de la manana. (plotly y graphviz
+#                     igual se instalan: son dependencias de catboost.
+#                     Que esten no es permiso para usarlas.)
+#
+# featuretools        Genera cientos de variables automaticas. En un caso
+#                     con fuga de informacion en cada esquina (el
+#                     cant_productos_banco incluye el propio factoring)
+#                     la generacion automatica es la forma mas rapida de
+#                     meter una variable que mira el futuro sin notarlo.
+#
+# pycaret / autogluon Automatizan la seleccion de modelo. El jurado
+#                     pregunta por que se eligio ese modelo; "lo eligio
+#                     la libreria" no es una respuesta. Y pesan GB.
+#
+# tensorflow / torch  No hay texto, ni imagen, ni secuencia larga. Un
+#                     arbol gana en datos tabulares con 100 mil filas, y
+#                     el manejo de recursos computacionales se evalua.
